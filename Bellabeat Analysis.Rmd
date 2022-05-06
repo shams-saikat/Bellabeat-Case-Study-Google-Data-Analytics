@@ -1,0 +1,432 @@
+---
+title: "Bellabeat Analysis"
+output: html_document
+date: '2022-03-18'
+---
+## Data Exploration in Excel
+For exploratory analysis, I opened all the csv files in excel. From initial review, there seems to be some redundancy in the datasets. The dataset dailyActivity apparently includes the data from dailyCalories, dailyIntensities and dailySteps. The daily activity attributes also seem to be broken down by hourly and by minute. For the purpose of this analysis I want to use datasets on daily level and only sleep and MET data on daily and minute level.. (why?) I changed general format to date only for dailysleep and weightlog dataset since the time seemed irrelevant. In other datasets, I changed general to shortdate or datetime as needed. In hourlyintensities split the datetime column to individual columns of date and time and formatted them accordingly for ease of analysis later. I rounded all distance parameters to 2 d.p. for simplicity. Split Date time in hear rate data and formatted time with only hr of day for usage.
+
+
+## Installing necessary packages
+I used the following libraries for the analysis.
+
+```{r}
+install.packages("readr")
+install.packages("tidyverse")
+install.packages("dplyr")
+install.packages("skimr")
+install.packages("janitor")
+install.packages("ggplot2")
+install.packages("gridExtra")
+
+
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(skimr)
+library(janitor)
+library(ggplot2)
+library(gridExtra)
+```
+
+## Loading CSV files in R
+In order to process and analyze the data, I chose Rstudio for the vast array of capabilities and ease of documentation using R Markdown. The datasets were uploaded and dataframes created in Rstudio. 
+```{r}
+# set working directory to folder with all csv data source files
+setwd("/cloud/project/Fitabase Data 4.12.16-5.12.16")
+
+dailyActivity <- read_csv("dailyActivity_merged.csv")
+dailySleep <- read_csv("sleepDay_merged.csv")
+weightLog <- read_csv("weightLogInfo_merged.csv")
+minuteSleep <- read_csv("minuteSleep_merged.csv")
+hr <- read_csv("heartrate_seconds_merged.csv")
+hourlyIntensities <- read_csv("hourlyIntensities_merged.csv")
+```
+
+
+I used glimpse() function to view each dataset. Clean all date, time and date time columns. Rename all date columns to logDate and time columns to logTime for ease of merge later. 
+
+```{r}
+glimpse(dailyActivity)
+glimpse(hourlyIntensities)
+glimpse(minuteMETs)
+glimpse(hr)
+glimpse(dailySleep)
+glimpse(minuteSleep)
+glimpse(weightLog)
+
+dailySleep <- dailySleep %>%
+  rename(logDate = SleepDay)
+
+dailyActivity <-dailyActivity %>%
+  rename(logDate = ActivityDate)
+
+```
+
+## User summaries and usage behavior of activity, sleep and weight logging
+I summarised the daily activity data grouped by user Id to see what the average of the attributes were and how many data points we have for each user. There are 33 distinct users in the daily activity dataset. I summarised the weightLog  to look for trends but looks like only 8 users logged weight out of the 33 and only 2 of those 8 logged somewhat regularly. I want to understand the usage of the device by people who reported their data. From the summary table of dailyActivity let's categorize users based on number of days used. The categories I'll chose will be "Rare", "Moderate" and "Regular" user for usage of 0-10, 11-20, 21-31 days, respectively. Once I have assigned each user to a category, I want to see the distribution by aggregating total and percentage users in each category. It looks like 87.9% of our users are regular when it comes to dailyActivity recording with the device. We have 9.1% moderate and 3% low frequency users.
+
+```{r}
+#grouping daily activity by user
+dailyActivity_summary <- dailyActivity %>%
+ group_by(Id) %>%
+ summarise(n = n(), average_steps = round(mean(TotalSteps)), average_calories = round(mean(Calories)), average_distance = round(mean(TotalDistance),2), average_VeryActiveMinutes = round(mean(VeryActiveMinutes)), average_FairlyActiveMinutes = round(mean(FairlyActiveMinutes)), average_LightlyActiveMinutes = round(mean(LightlyActiveMinutes)), average_SedentaryMinutes = round(mean(SedentaryMinutes)))
+
+#grouping weight log by user
+weightLogSummary <- weightLog %>%
+  group_by(Id) %>%
+  summarise(n=n(), average_weight_lbs = mean(WeightPounds), max_weight = max(WeightPounds), min_weight = min(WeightPounds), averageBMI = mean(BMI))
+
+#grouping sleep log by user
+dailySleepSummary <- dailySleep %>%
+  group_by(Id) %>%
+  summarise(n=n(), averageTimeAsleep = mean(TotalMinutesAsleep), averageTimeInBed = mean(TotalTimeInBed))
+
+#merging the activity and sleep summary datasets grouped by user
+dailySummary_merged = merge(dailyActivity_summary, dailySleepSummary, by="Id", all=TRUE)
+
+#Categorizing users based on the frequency of usage
+dailyActivity_summary$Usage <- ifelse(dailyActivity_summary$n<=10,"Low", 
+                ifelse(dailyActivity_summary$n>10 & dailyActivity_summary$n<21, "Medium", "Regular"))
+
+#Grouping users based on the frequency of usage
+dailyActivity_usage <- dailyActivity_summary %>%
+  group_by(Usage) %>%
+  summarise(userCount=n(), average_usage= round(mean(n),0))
+dailyActivity_usage <- dailyActivity_usage[order(-dailyActivity_usage$average_usage),]
+dailyActivity_usage$perc <- scales::percent(dailyActivity_usage$userCount/sum(dailyActivity_usage$userCount))
+
+#Visual representation of usage
+gg_activity <- ggplot(dailyActivity_usage, aes(x = "", y = userCount, fill = Usage)) +
+     geom_col(color = "black") +
+     geom_text(aes(label = perc),
+               position = position_stack(vjust = 0.5)) +
+     coord_polar(theta = "y") +
+     scale_fill_manual(values = c("#BE2A3E", "#EACF65", "#3C8D53")) +
+     labs(title="Activity Logging") +
+     theme_void()+
+     theme(legend.position="none")
+
+```
+
+
+If I look at the same statistic for sleep recording and weight logging we see a different picture.  Repeat same process with sleep data and weight log. Firstly, the number of distinct users in these categories are 24 and 8 (much lower compared to 33 of dailyActivity). The distribution also changes drastically. We have only 50% users tracking sleep regularly and 25% users logging weight.
+
+```{r}
+dailySleepSummary$Usage <- ifelse(dailySleepSummary$n<=10,"Low", 
+                ifelse(dailySleepSummary$n>10 & dailySleepSummary$n<21, "Medium", "Regular"))
+
+dailySleep_usage <- dailySleepSummary %>%
+  group_by(Usage) %>%
+  summarise(userCount=n(), average_usage= round(mean(n),0))
+
+dailySleep_usage <- dailySleep_usage[order(-dailySleep_usage$average_usage),]
+dailySleep_usage$perc <- scales::percent(dailySleep_usage$userCount/sum(dailySleep_usage$userCount))
+
+weightLogSummary$Usage <- ifelse(weightLogSummary$n<=10,"Low", 
+                ifelse(weightLogSummary$n>10 & weightLogSummary$n<21, "Medium", "Regular"))
+
+weightLog_usage <- weightLogSummary %>%
+  group_by(Usage) %>%
+  summarise(userCount=n(), average_usage= round(mean(n),0))
+
+weightLog_usage <- weightLog_usage[order(-weightLog_usage$average_usage),]
+weightLog_usage$perc <- scales::percent(weightLog_usage$userCount/sum(weightLog_usage$userCount))
+
+#Visual representation of usage
+gg_usageSleep <- ggplot(dailySleep_usage, aes(x = "", y = userCount, fill = Usage)) +
+     geom_col(color = "black") +
+     geom_text(aes(label = perc),
+               position = position_stack(vjust = 0.5)) +
+     coord_polar(theta = "y") +
+     scale_fill_manual(values = c("#BE2A3E", "#EACF65", "#3C8D53")) +
+     labs(title="Sleep Logging") +
+     theme_void()+
+     theme(legend.position="bottom")
+
+gg_usageWeight <- ggplot(weightLog_usage, aes(x = "", y = userCount, fill = Usage)) +
+     geom_col(color = "black") +
+     geom_text(aes(label = perc),
+               position = position_stack(vjust = 0.5)) +
+     coord_polar(theta = "y") +
+     scale_fill_manual(values = c("#BE2A3E", "#EACF65", "#3C8D53")) +
+     labs(title="Weight Logging") +
+     theme_void()+
+     theme(legend.position="none")
+
+grid.arrange(gg_activity, gg_usageSleep,gg_usageWeight, ncol=3)
+
+
+```
+
+So far we have seen that dailyActivity tracking is what users are mostly utilizing the device for. I'd say the sleep tracking and weight/bmi monitoring feature is underutilized. We'll have to do further analysis on all of the datasets to get more insight of their usage behavior that will help product marketing and company growth.
+
+Let's start with dailyActivity.
+
+I want to see a summary of key parameters. 
+
+```{r}
+dailyActivity %>%
+  select(TotalSteps, TotalDistance, SedentaryMinutes, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes, Calories) %>%
+  summary()
+```
+## Insight 1 - Daily Steps
+Average steps taken by users every day is 7,638, which is below the recommended 10,000 by CDC. We can market our product to be useful for monitoring daily steps to maintain healthy normal. Furthermore, we can notify users to walk more at specific times during the day to complete the goal number of steps.
+
+```{r}
+dailyActivity$weekDay <- strptime(dailyActivity$logDate,format="%m/%d/%Y") %>%
+  as.Date(dailyActivity$logDate) %>%
+  weekdays(., abbreviate = FALSE)
+
+dailyActivity$weekDayNum <- strptime(dailyActivity$logDate,format="%m/%d/%Y") %>%
+  as.Date(dailyActivity$logDate) %>%
+  wday(., week_start=1)
+
+activityWeekDay <- dailyActivity %>%
+  group_by(weekDay) %>%
+  summarise(stepsByDay = mean(TotalSteps), weekDayNum = mean(weekDayNum)) %>%
+  arrange(weekDayNum)
+
+v <-ggplot(activityWeekDay, aes(x=reorder(weekDay, weekDayNum), y=stepsByDay)) +
+  geom_bar(stat = "identity") 
+print(v)
+```
+
+
+## Insight 2 - Activeness
+We can get an idea of how active our users are in general by looking at the distribution of time between sedentary, lightly active, fairly active and very active minutes. From summary of sedentary minutes, Max value is 1440 minutes, which is entire duration of the day. I am going to assume that the device registers days when unworn as sedentary by default. This can bias our findings. Therefore, I want to filter out rows with sedentary minutes 1440 where TotalSteps value is also 0 (as a secondary check). Next, we total the different categories of active minutes, add a new column 'totalActiveMinutes' in dailyActivity dataset and corresponding summary column in dailyActivity_summary. Then we'll represent time spent in each category as percentage of total activity.
+
+
+```{r}
+dailyActivity <- dailyActivity %>%
+  filter(SedentaryMinutes != 1440 & TotalSteps !=0)
+
+dailyActivity <- dailyActivity %>%
+  mutate(totalActiveMinutes = VeryActiveMinutes + FairlyActiveMinutes +
+                                  LightlyActiveMinutes + SedentaryMinutes)
+
+dailyActivity_summary <- dailyActivity_summary %>%
+  mutate(average_totalActiveMinutes = average_SedentaryMinutes + average_LightlyActiveMinutes +
+                                      average_FairlyActiveMinutes + average_VeryActiveMinutes)
+
+dailyActivityRatio <-dailyActivity_summary %>%
+  summarise(sedentary=mean(average_SedentaryMinutes/average_totalActiveMinutes),
+            lightlyActive=mean(average_LightlyActiveMinutes/average_totalActiveMinutes),
+            fairlyActive=mean(average_FairlyActiveMinutes/average_totalActiveMinutes),
+            veryActive=mean(average_VeryActiveMinutes/average_totalActiveMinutes)) %>%
+  summarise(sedentary = round(sedentary*100,1), lightlyActive = round(lightlyActive*100,1), fairlyActive = round(fairlyActive*100,1), veryActive=round(veryActive*100,1))
+
+dailyActivityRatio <- gather(dailyActivityRatio, activityType, percDay)
+
+gg_ActivityRatio <- ggplot(dailyActivityRatio, aes(x = "", y = percDay, fill = activityType)) +
+     geom_col(color = "white") +
+     geom_text(aes(label = percDay),
+               position = position_stack(vjust = 0.5)) +
+     coord_polar(theta = "y") +
+     labs(title="Daily activity ratio") +
+     theme_void()
+
+print(gg_ActivityRatio)
+
+
+```
+Looks like the average user spends 79.4% of their time sedentary, 17.5% lightly active, 1.3% fairly active and 1.8% very active. This indicates a high level of sedentary time so it is worthwhile to investigate if they meet the recommended amount of activity. 
+
+According to CDC guideline, adults should aim for 150 minutes of moderate activity or 75 minutes of vigorous activity a week. It can also be a combination of the two spread across multiple days. This translates to approximately 21 minutes of moderate and 11 minutes of vigorous activity daily. Assuming that moderate and vigorous activity is equivalent to fairly active and very active, we can see what fraction of the users do meet this criteria. 
+
+About 55% of users meet the recommended activity level, which leaves 45% of users vulnerable to health complication due to lack of physical activity. It is possible to market to these users by allowing our product to track their progresss through the week and notify them daily of remainder of their weekly goal.
+
+```{r}
+nrow(dailyActivity_summary[(dailyActivity_summary$average_VeryActiveMinutes > 11 | dailyActivity_summary$average_FairlyActiveMinutes > 21),]) / nrow(dailyActivity_summary) * 100
+```
+
+## Hourly Intensity
+
+```{r}
+hourlyIntensities$weekDay <- strptime(hourlyIntensities$ActivityDay,format="%m/%d/%Y") %>%
+  as.Date(hourlyIntensities$ActivityDay) %>%
+  weekdays(., abbreviate = FALSE)
+
+hourlyIntensities$weekDayNum <- strptime(hourlyIntensities$ActivityDay,format="%m/%d/%Y") %>%
+  as.Date(hourlyIntensities$ActivityDay) %>%
+  wday(., week_start=1)
+
+intensityWeekDay <- hourlyIntensities %>%
+  group_by(weekDay, ActivityHour) %>%
+  summarise(intensityByHour = round(mean(TotalIntensity),1), weekDayNum = mean(weekDayNum), .groups = "keep")
+  #arrange(weekDayNum)
+
+intensityWeekDay$ActivityHourTransformed <- format(strptime(intensityWeekDay$ActivityHour, format='%H'), '%I %p')
+```
+
+```{r}
+# Create a theme that is a bit more friendly. This isn't required to do the visualization,
+# but it's a painful heatmap to look at otherwise. We start with a minimalist theme... and
+# then basically make it even more minimalist. Thank you, Tufte and Few.
+theme_heatmap <- theme_light() +                 # Start with a minimalist theme
+  theme(panel.grid = element_blank(),            # Remove the gridlines
+        panel.border = element_blank(),          # Remove the border around the heatmap
+        plot.title = element_text(face = "bold", # Make the title bold
+                                  size = 11,     # Adjust the title size
+                                  hjust = 0.5),  # Center the title
+        axis.ticks = element_blank(),            # Remove the axis tickmarks
+        axis.title.x = element_blank(),          # Turn off the x-axis title 
+        axis.title.y = element_text(size=10),    # Adjust the size of the y-axis title
+        axis.text.y = element_text(size = 8),    # Adjust the size of the y-axis labels
+        axis.text.x = element_text(size = 10),)   # Adjust the size of the x-axis labels
+        #legend.position = "none")                # Turn off the legend
+```
+
+```{r}
+# Create the plot.
+
+gg <- ggplot(intensityWeekDay, mapping = aes(x = reorder(weekDay, weekDayNum), y = reorder(ActivityHourTransformed, desc(ActivityHour)), 
+                                           fill = intensityByHour)) +
+  geom_tile(colour="white") +  # This makes the heatmap (the colour is the lines in the grid)
+  scale_fill_gradient(low = "#0810ff", high="#f74002") +  # The colour range to use
+  scale_x_discrete(expand = c(0,0), position = "top") +
+  labs(title = "Average activity intensity", y = "Time of Day") +
+  theme_heatmap  # Apply the theme defined earlier for styling
+
+print(gg)
+```
+## Calories
+On average, users burned 2304 calories daily. The actual amount of calories burned can be dependent on multiple other factors such as age, gender and body mass. We expect to see correlation between activity level and calories burned. From this dataset we can find how the different types of activity compare in regards to their relationship with calories burned. Plotting the total steps, lightly active, fairly active and very active minutes show that users can burn more calories by increasing any of these throughout their day. However, very active minutes and total steps had strongest correlation (0.62 and 0.56 respectively). This information can help users monitor these factors to achieve their goals and be more active in general.
+
+We can also incentivize users towards our product for their weight goals. A person's weight gained or lost is a direct result of net calories. In order to maintain a healthy weight, users can set daily calorie goals that our device can help them track and notify when unmet.
+
+```{r}
+
+theme_customScatter <-theme_light() + theme(panel.background = element_rect(fill = 'white', color = 'grey'),
+        panel.grid.major = element_line(color = 'grey', linetype = 'dotted'),
+        panel.grid.minor = element_line(color = 'grey', linetype = 'dotted'))
+
+cor_Calories1 <- round(cor(dailyActivity$TotalSteps, dailyActivity$Calories),2)
+cor_Calories2 <- round(cor(dailyActivity$LightlyActiveMinutes, dailyActivity$Calories),2)
+cor_Calories3 <- round(cor(dailyActivity$FairlyActiveMinutes, dailyActivity$Calories),2)
+cor_Calories4 <- round(cor(dailyActivity$VeryActiveMinutes, dailyActivity$Calories),2)
+
+gg_Calories1 <- ggplot(dailyActivity, aes(TotalSteps, Calories)) +
+                geom_point(color="steelblue") + geom_smooth(method=lm) + 
+                labs(title = paste("r=",cor_Calories1 )) +
+                theme_customScatter
+
+gg_Calories2 <- ggplot(dailyActivity, aes(LightlyActiveMinutes, Calories)) +
+                geom_point(color="steelblue") + geom_smooth(method=lm) + 
+                labs(title = paste("r=",cor_Calories2 )) +
+                theme_customScatter
+
+gg_Calories3 <- ggplot(dailyActivity, aes(FairlyActiveMinutes, Calories)) +
+                geom_point(color="steelblue") + geom_smooth(method=lm) + 
+                labs(title = paste("r=",cor_Calories3 )) +
+                theme_customScatter
+
+gg_Calories4 <- ggplot(dailyActivity, aes(VeryActiveMinutes, Calories)) +
+                geom_point(color="steelblue") + geom_smooth(method=lm) + 
+                labs(title = paste("r=",cor_Calories4 )) +
+                theme_customScatter
+
+grid.arrange(gg_Calories1, gg_Calories2, gg_Calories3, gg_Calories4, ncol=2)
+
+```
+
+## Sleep Data Analysis
+An important component of health is rest, primarily sleep. When it comes to sleep, the quality of sleep one gets is just as important as the amount. However, our dataset only has duration in bed, duration asleep and sleep by minute. By using summary() function on the dailySleep dataset, we see that users average 7 hrs of sleep and 0.6 hrs or 36 minutes of awake time in bed. By merging the daily activity dataset with sleep we can explore if there is any relationship between amount of steps and sleep. We can see a weak negative correlation, however it is not possible to conclude which one is driving factor and which one is driven without more information. Furthermore, there doesn't appear to be any significant correlation between how amount of sedentary time and time spent awake in bed. This was surprising to me since I expected being highly sedentary might lead difficulty falling asleep.
+
+```{r}
+dailySleep %>%
+  select(TotalMinutesAsleep, TotalTimeInBed) %>%
+  summarise(timeAsleep = round(mean(TotalMinutesAsleep)/60,1), timeInBed= round(mean(TotalTimeInBed)/60,1))
+
+dailyActivityMerged <- merge(dailyActivity, dailySleep, by = c("Id", "logDate"), all=TRUE)
+dailyActivityMerged <- dailyActivityMerged %>%
+  mutate(timeInBedAwake = TotalTimeInBed - TotalMinutesAsleep)
+
+gg_sleep2 <- dailyActivityMerged %>%
+  drop_na(TotalMinutesAsleep) %>%
+  ggplot(., aes(x=SedentaryMinutes, y=TotalMinutesAsleep)) + 
+  geom_point(color="steelblue") + geom_smooth(method=lm) + 
+  theme(panel.background = element_rect(fill = 'white', color = 'grey'),
+        panel.grid.major = element_line(color = 'grey', linetype = 'dotted'),
+        panel.grid.minor = element_line(color = 'grey', linetype = 'dotted'))
+print(gg_sleep2)
+
+
+
+```
+
+
+## Heart Rate 
+Heart rate for adults can vary based on multiple factors such as age, gender, fitness level, stress, etc. A normal range is considered between 60-100 beats per minute (bpm). A quick summary of our heart rate data set shows 7 participants report average heart rate within normal range. 
+
+For an individual user, it is beneficial to know several heart rate related parameters, such as resting heart rate, maximum heart rate, or heart rate during exercising. Despite the small sample size, I'm curious to see if we can see any trend between average daily steps and resting heart rate (a general indicator of cardiac health and fitness). For this, I will average the minimum heart rate from each day for every user. Then I will merge this dataframe with dailyActivity summary by user Id, and plot average steps against min heart rate. We can see from the trend that users who average higher step count tend to have lower resting heart rate (as expected). While the small sample size leaves our findings inconclusive, we can use this ability to analyze hr on individual level over time to monitor heart health. In addition to long term benefit, we can provide users with real time hr monitoring during daily exercise to categorize their activity level as fat burning, cardio or peak. This allows users to increase or decrease the intensity of their exercise according to their goals.
+
+```{r}
+#heart rate summary by user
+hr %>% 
+  group_by(Id) %>%
+  summarise(minHR = min(Value), maxHR = max(Value), avgHR = mean(Value))
+```
+
+
+```{r}
+## Scouting for trend between heart rate, activity and sleep
+
+#extracting resting heart rate as daily lowest heart rates for every user
+dailyRestingHr <- hr %>% 
+  group_by(Id, Date) %>%
+  summarise(minHR = min(Value), maxHR = max(Value), avgHR = mean(Value))
+
+dailyActivityMerged <- merge(dailyActivityMerged, dailyRestingHr, by=c("Id", "logDate"), all=TRUE)
+
+gt <- dailyActivityMerged %>%
+  drop_na(minHR) %>%
+  ggplot(., aes(x=TotalSteps, y=minHR))
+gt <- gt + geom_point(color = "steelblue") + geom_smooth(method=lm) +  
+  theme(panel.background = element_rect(fill = 'white', color = 'grey'),
+        panel.grid.major = element_line(color = 'grey', linetype = 'dotted'),
+        panel.grid.minor = element_line(color = 'grey', linetype = 'dotted'))
+print(gt)
+
+
+```
+
+## Weight Log
+Body weight can be very useful indicator of one's physical health. Particularly, BMI - which accounts for height - can be a screening tool for over or underweight. According to CDC, a healthy BMI range is between 18.5 to 24.5. Among the 8 users in our dataset, 37.5% have a healthy weight and 62.5% are in the overweight or obese range. 
+
+If we merge the weightSummary dataset with dailyActivity summary and plot average BMI against average steps, we see a trend. Users who average higher number of steps tend to have lower BMI in the healthy range. While this fits the expected narrative, this is not conclusive of the overall population since we have very few number of users. We need more data points to be confident in our conclusion. Additionally, a healthy weight is not just a factor of steps taken or calories burned but also calories consumed. Without a holistic analysis, causal relationships cannot be determined.
+
+```{r}
+
+weightLogSummary$BMIcategory <- ifelse(weightLogSummary$averageBMI<18.5,"Underweight", 
+                ifelse(weightLogSummary$averageBMI>=18.5 & weightLogSummary$averageBMI<=24.5, "Healthy", ifelse(weightLogSummary$averageBMI>=25.0 & weightLogSummary$averageBMI<=29.9, "Overweight", "Obese")))
+
+weightLogSummary %>%
+  group_by(BMIcategory) %>%
+  summarise(percBMIcategory = n()*100/nrow(.))
+```
+ 
+```{r}
+u <- merge(weightLogSummary, dailyActivity_summary[c("Id", "average_steps")], by="Id", all=FALSE) %>%
+  ggplot(., aes(x=average_steps, y=averageBMI))
+
+u <- u + geom_point(color="steelblue") + geom_smooth(method=lm) + 
+    theme(panel.background = element_rect(fill = 'white', color = 'grey'),
+        panel.grid.major = element_line(color = 'grey', linetype = 'dotted'),
+        panel.grid.minor = element_line(color = 'grey', linetype = 'dotted'))
+
+print(u)
+```
+
+Earlier in our analysis, we saw that very few users actually log their weights. 61% of the weight log was manual, which may be a deterrent to logging weight regularly. Manual logging can be tedious for users and they may also not remember to log weight daily/frequently. Having pairing functionality with smart scales can be one weigh of encouraging users to be more regular with weight tracking. 
+```{r}
+weightLog %>%
+ group_by(IsManualReport) %>%
+ summarise(n=n()) %>%
+  mutate(perc = scales::percent(n/sum(n)))
+```
+
+Since physical activity and weight have cause and effect relationship, setting goals and then tracking daily activity and weight can motivate users utilize the product to monitor their progress and make adjustments daily/weekly.
+
+
+
