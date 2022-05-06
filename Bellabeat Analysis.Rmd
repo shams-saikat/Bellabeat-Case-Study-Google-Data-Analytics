@@ -44,7 +44,7 @@ hourlyIntensities <- read_csv("hourlyIntensities_merged.csv")
 ```
 
 
-I used glimpse() function to view each dataset. Clean all date, time and date time columns. Rename all date columns to logDate and time columns to logTime for ease of merge later. 
+I used glimpse() function to view each dataset. Cleand all date, time and date time columns. Rename all date columns to logDate and time columns to logTime for ease of merge later. 
 
 ```{r}
 glimpse(dailyActivity)
